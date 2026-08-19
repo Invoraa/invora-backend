@@ -1,11 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { z } from "zod";
+import { updateInvoiceStatus } from "../../lib/db";
 
 const ReleaseEscrowSchema = z.object({
   invoiceId: z.string(),
   milestoneId: z.string().optional(),
-  senderAddress: z.string().min(56).max(56),
-  signedXdr: z.string(),
+  senderAddress: z.string().length(56),
+  txHash: z.string(),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -21,11 +22,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
   }
 
-  // TODO: Submit release tx and update invoice/milestone status
-  return res.status(200).json({
-    message: "Escrow release initiated",
-    invoiceId: parsed.data.invoiceId,
-    milestoneId: parsed.data.milestoneId ?? null,
-    status: "released",
-  });
+  try {
+    const { invoiceId, txHash } = parsed.data;
+    await updateInvoiceStatus(invoiceId, "paid", txHash);
+    return res.status(200).json({
+      message: "Escrow released successfully",
+      invoiceId,
+      status: "paid",
+      txHash,
+    });
+  } catch (err) {
+    console.error("Escrow release error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 }
