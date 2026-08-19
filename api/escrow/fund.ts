@@ -1,12 +1,14 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { z } from "zod";
+import { updateInvoiceStatus } from "../../lib/db";
 
 const FundEscrowSchema = z.object({
   invoiceId: z.string(),
-  payerAddress: z.string().min(56).max(56),
+  payerAddress: z.string().length(56),
   amount: z.string(),
   currency: z.enum(["USDC", "XLM"]),
-  signedXdr: z.string(), // signed transaction XDR from client wallet
+  txHash: z.string(),
+  contractAddress: z.string().optional(),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -22,10 +24,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
   }
 
-  // TODO: Submit signedXdr to Stellar network and update invoice status
-  return res.status(200).json({
-    message: "Escrow funding initiated",
-    invoiceId: parsed.data.invoiceId,
-    status: "in_escrow",
-  });
+  try {
+    const { invoiceId, txHash, contractAddress } = parsed.data;
+    await updateInvoiceStatus(invoiceId, "in_escrow", txHash, contractAddress);
+    return res.status(200).json({ message: "Escrow funded", invoiceId, status: "in_escrow", txHash });
+  } catch (err) {
+    console.error("Escrow fund error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 }
